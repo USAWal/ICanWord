@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <string name="app_name">I Can Word</string>
+    
+    <string name="search">Search</string>
+    <string name="no_definitions_yet">No definitions yet</string>
+    <string name="no_definitions_found">No definitions found</string>
+    <string name="search_hint">Search definitions of word</string>
+    <string name="provider">de.zilant.icanword.provider</string>
+    <string name="search_suggest_path">suggestions</string>
+    <string name="search_suggest_selection">word LIKE ?%</string>
+    <string name="search_suggest_intent_action">android.intent.action.SEARCH</string>
+    <string name="definitions_path">definitions</string>
+    <string name="wordnik_api_key_key">WORDNIK_API_KEY</string>
+    <string name="wordnik_api_key_value">918416cd47893523d05090ab23505c2fc97a0ddada060189d</string>
+
+</resources>
