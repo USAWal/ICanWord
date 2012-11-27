@@ -9,13 +9,14 @@ import java.util.concurrent.Future;
 import net.jeremybrooks.knicker.AccountApi;
 import net.jeremybrooks.knicker.KnickerException;
 import net.jeremybrooks.knicker.WordApi;
-import android.app.SearchManager;
+import android.content.ContentValues;
 import android.content.Context;
 import android.content.res.Resources;
 import android.database.Cursor;
 import android.database.MatrixCursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
+import android.database.sqlite.SQLiteStatement;
 import android.provider.BaseColumns;
 
 public class Data extends SQLiteOpenHelper {
@@ -70,13 +71,21 @@ public class Data extends SQLiteOpenHelper {
 		}
 	}
 	
-	public Cursor suggest(String query) {
+	public int insertDefinitions(ContentValues[] values) {
 		try {
-			return executor.submit(new SelectSuggestions(query)).get();
-		} catch (Exception e) {
+			return executor.submit(new CachingOfDefinitions(values)).get();
+		} catch(Exception e) {
 			e.printStackTrace();
-			return null;
+			return 0;
 		}
+	}
+	
+	public void updateDefinition(ContentValues values) {
+		try {
+			executor.submit(new UpdatingOfDefinition(values)).get();
+		} catch(Exception e) {
+			e.printStackTrace();
+		}		
 	}
 	
 	private boolean isOnline() {
@@ -98,6 +107,105 @@ public class Data extends SQLiteOpenHelper {
 	
 	}
 	
+	private class UpdatingOfDefinition implements Callable<Void> {
+		
+		public UpdatingOfDefinition(ContentValues values) {
+			this.values = values;
+		}
+
+		@Override
+		public Void call() throws Exception {
+			SQLiteDatabase db = getWritableDatabase();
+			SQLiteStatement definitionUpdation = db.compileStatement(UPDATE_DEFINITION);
+			db.beginTransaction();
+			try
+			{
+				definitionUpdation.bindLong(1, values.getAsLong(String.valueOf(IS_WANTED_INDEX)));
+				definitionUpdation.bindLong(2, values.getAsLong(String.valueOf(ID_INDEX)));
+				definitionUpdation.executeUpdateDelete();
+				db.setTransactionSuccessful();
+				return null;
+			} finally {
+				db.endTransaction();
+			}
+		}
+		
+		private ContentValues values;
+
+		private static final String UPDATE_DEFINITION = "UPDATE OR ABORT definitions " +
+				"SET need_to_memorize = :need_to_memorize " +
+				"WHERE id = :id;";
+		
+		protected static final int ID_INDEX = 0;
+		protected static final int IS_WANTED_INDEX = 4;
+		
+	}
+	
+	private class CachingOfDefinitions implements Callable<Integer> {
+
+		public CachingOfDefinitions(ContentValues[] values) {
+			this.values = values;
+		}
+		
+		@Override
+		public Integer call() throws Exception {
+			SQLiteDatabase db = getWritableDatabase();
+			SQLiteStatement wordInsertion = db.compileStatement(INSERT_WORD);
+			SQLiteStatement partOfSpeechInsertion = db.compileStatement(INSERT_PART_OF_SPEECH);
+			SQLiteStatement explanationInsertion = db.compileStatement(INSERT_EXPLANATION);
+			SQLiteStatement definitionInsertion = db.compileStatement(INSERT_DEFINITION);
+			db.beginTransaction();
+			try
+			{
+				for(ContentValues value : values)
+				{
+					wordInsertion
+						//.reset(true)
+						.bindString(1, value.getAsString(String.valueOf(WORD_INDEX)));
+					wordInsertion.executeInsert();
+					partOfSpeechInsertion
+						//.reset(true)
+						.bindString(1, value.getAsString(String.valueOf(PART_OF_SPEECH_INDEX)));
+					partOfSpeechInsertion.executeInsert();
+					explanationInsertion
+						//.reset(true)
+						.bindString(1, value.getAsString(String.valueOf(DEFINITION_INDEX)));
+					explanationInsertion.executeInsert();
+					definitionInsertion
+						//.reset(true)
+						.bindString(1, value.getAsString(String.valueOf(WORD_INDEX)));
+						definitionInsertion.bindString(2, value.getAsString(String.valueOf(PART_OF_SPEECH_INDEX)));
+						definitionInsertion.bindString(3, value.getAsString(String.valueOf(DEFINITION_INDEX)));
+						definitionInsertion.bindLong(4, value.getAsInteger(String.valueOf(IS_WANTED_INDEX)));
+					definitionInsertion.executeInsert();
+				}
+				db.setTransactionSuccessful();
+				return values.length;
+			} finally {
+				db.endTransaction();
+			}
+		}
+		
+		private ContentValues[] values;
+		
+		private static final String INSERT_WORD = 
+				"INSERT OR IGNORE INTO words (spelling) VALUES (:word);";
+		private static final String INSERT_PART_OF_SPEECH =
+				"INSERT OR IGNORE INTO parts_of_speech (spelling) VALUES (:part_of_speech);";
+		private static final String INSERT_EXPLANATION = 
+				"INSERT OR IGNORE INTO explanations (description) VALUES (:explanation)";
+		private static final String INSERT_DEFINITION = 
+				"INSERT OR ROLLBACK " +
+						"INTO applicable_definitions " +
+						"VALUES (-1, :word, :part_of_speech, :explanation, :need_to_memorize);";
+		
+		protected static final int WORD_INDEX = 1;
+		protected static final int PART_OF_SPEECH_INDEX = 2;
+		protected static final int DEFINITION_INDEX = 3;
+		protected static final int IS_WANTED_INDEX = 4;
+		
+	}
+	
 	private class SelectDefinitions implements Callable<Cursor> {
 
 		public SelectDefinitions(String word) {
@@ -112,7 +220,9 @@ public class Data extends SQLiteOpenHelper {
 						word.isEmpty()
 							? SELECT_ALL_DEFINITIONS_FOR_MEMORIZING
 							: SELECT_DEFINITIONS_OF_WORD,
-						new String[] {word});
+						word.isEmpty()
+							? null
+							: new String[] {word});
 				if(selectedDefinitions != null
 						&& isOnline() 
 						&& selectedDefinitions.getCount() == 0 
@@ -121,6 +231,7 @@ public class Data extends SQLiteOpenHelper {
 			} catch (Exception e)
 			{
 				//TODO: if null (went wrong), then notify user
+				e.printStackTrace();
 				if(selectedDefinitions == null)
 					selectedDefinitions = new MatrixCursor(projection);
 			}
@@ -131,8 +242,8 @@ public class Data extends SQLiteOpenHelper {
 		private Cursor download(String word) throws KnickerException {
 			List<net.jeremybrooks.knicker.dto.Definition> definitions =  WordApi.definitions(word);
 			MatrixCursor result = new MatrixCursor(projection);
-			for(int index = 0; index < definitions.size(); index++) {
-				net.jeremybrooks.knicker.dto.Definition definition = definitions.get(index);
+			for(int index = -1; index >= -definitions.size(); index--) {
+				net.jeremybrooks.knicker.dto.Definition definition = definitions.get(-(index + 1));
 				result.addRow(new Object[] {
 						index,
 						definition.getWord(),
@@ -155,7 +266,7 @@ public class Data extends SQLiteOpenHelper {
 			"need_to_memorize"
 		};
 		private static final String SELECT_PREFIX = "SELECT " +
-				"id, " +
+				"id as _id, " +
 				"word, " +
 				"part_of_speech, " +
 				"explanation, " +
@@ -167,61 +278,6 @@ public class Data extends SQLiteOpenHelper {
 		private static final String SELECT_DEFINITIONS_OF_WORD = SELECT_PREFIX +
 				"word = ? " +
 				"ORDER BY need_to_memorize DESC, explanation;";
-		
-	}
-	
-	private class SelectSuggestions implements Callable<Cursor> {
-
-		public SelectSuggestions(String query) {
-			this.query = query;
-		}
-		
-		@Override
-		public Cursor call() throws Exception {
-			MatrixCursor suggestions = new MatrixCursor(
-					new String[] {
-							BaseColumns._ID,
-							SearchManager.SUGGEST_COLUMN_TEXT_1,
-							SearchManager.SUGGEST_COLUMN_QUERY});
-			if(query.length() > 0 &&isOnline()) {
-				try
-				{	
-					List<String> remoteRawSuggestions = WordApi.lookup(query, false, true).getSuggestions();
-					for(int index = -1; index >= -remoteRawSuggestions.size(); index--) {
-						Object object = remoteRawSuggestions.get(-(index + 1));
-						suggestions.addRow(new Object[] {
-								index,
-								object,
-								object
-						});
-					}
-				}
-				catch(KnickerException e)
-				{
-					e.printStackTrace();
-				}				
-			}
-			Cursor localSuggestions = getWritableDatabase().rawQuery(SELECT_SUGGESTIONS,new String[] {query + "%"});
-			int idIndex = localSuggestions.getColumnIndex("id");
-			int spellingIndex = localSuggestions.getColumnIndex("spelling");
-			for(int index = 0; index < localSuggestions.getCount(); index++) {
-				Object object = localSuggestions.getString(spellingIndex);
-				suggestions.addRow(new Object[] {
-						localSuggestions.getInt(idIndex),
-						object,
-						object
-				});
-			}
-			return suggestions;
-		}
-		
-		private String query;
-		
-		private static final String SELECT_SUGGESTIONS = "SELECT " +
-				"* " +
-				"FROM words " +
-				"WHERE spelling LIKE ? " +
-				"ORDER BY spelling;";
 		
 	}
 

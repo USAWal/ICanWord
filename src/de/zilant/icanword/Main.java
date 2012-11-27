@@ -14,6 +14,12 @@ public class Main extends MenuActivity {
 	}
 	
 	@Override
+	protected void onRestart() {
+		super.onRestart();
+		getLoaderManager().restartLoader(0, null, this);
+	}
+	
+	@Override
 	protected CursorAdapter getAdapter() {
 		if(adapter == null) {
 			adapter = new SimpleCursorAdapter(

@@ -39,13 +39,19 @@ abstract public class MenuActivity extends ListActivity implements LoaderCallbac
 	
 	@Override
 	public Loader<Cursor> onCreateLoader(int id, Bundle args) {
-		Resources resources = getResources();
-		Uri uri = new Uri.Builder()
-			.scheme(ContentResolver.SCHEME_CONTENT)
-			.authority(resources.getString(R.string.provider))
-			.appendPath(resources.getString(R.string.definitions_path))
-			.build();
-		return new CursorLoader(this, uri, projection, getSelection(), getSelectionArgs(), getSortOrder());
+		return new CursorLoader(this, getUri(), projection, getSelection(), getSelectionArgs(), getSortOrder());
+	}
+	
+	protected Uri getUri() {
+		if(uri == null) {
+			Resources resources = getResources();
+			uri = new Uri.Builder()
+				.scheme(ContentResolver.SCHEME_CONTENT)
+				.authority(resources.getString(R.string.provider))
+				.appendPath(resources.getString(R.string.definitions_path))
+				.build();			
+		}
+		return uri;
 	}
 	
 	abstract protected CursorAdapter getAdapter();
@@ -61,7 +67,12 @@ abstract public class MenuActivity extends ListActivity implements LoaderCallbac
 		"explanation",
 		"need_to_memorize"
 	};
+	protected static final int ID_INDEX = 0;
+	protected static final int WORD_INDEX = 1;
 	protected static final int PART_OF_SPEECH_INDEX = 2;
 	protected static final int DEFINITION_INDEX = 3;
 	protected static final int IS_WANTED_INDEX = 4;
+	
+	private Uri uri;
+	
 }
