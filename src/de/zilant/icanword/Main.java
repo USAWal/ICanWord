@@ -8,6 +8,7 @@ import android.app.LoaderManager.LoaderCallbacks;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.CursorLoader;
+import android.content.Intent;
 import android.content.Loader;
 import android.content.res.Resources;
 import android.database.Cursor;
@@ -16,6 +17,8 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.Menu;
+import android.view.View;
+import android.widget.ExpandableListView;
 import android.widget.SearchView;
 import android.widget.SimpleCursorTreeAdapter;
 
@@ -48,8 +51,25 @@ public class Main extends ExpandableListActivity implements LoaderCallbacks<Curs
 			
 			@Override
 			protected Cursor getChildrenCursor(Cursor groupCursor) {
-				return null;
+				if(childrenCursors == null)
+					return null;
+				return childrenCursors.get(groupCursor.getPosition());
 			}
+		});
+		final Context context = this;
+		getExpandableListView().setOnGroupClickListener(new ExpandableListView.OnGroupClickListener() {
+			
+			@Override
+			public boolean onGroupClick(ExpandableListView parent, View v, int groupPosition, long id) {
+				MatrixCursor cursor = (MatrixCursor) getExpandableListAdapter().getGroup(groupPosition);
+				String value = cursor.getString(1);
+				Intent intent = new Intent(context, WordActivity.class);
+				intent.setAction(Intent.ACTION_SEARCH);
+				intent.putExtra(SearchManager.QUERY, value);
+				startActivity(intent);
+				return true;
+			}
+			
 		});
 		getLoaderManager().initLoader(0, null, this);
 	}
@@ -66,7 +86,7 @@ public class Main extends ExpandableListActivity implements LoaderCallbacks<Curs
 				data.getColumnName(ID_INDEX),
 				data.getColumnName(WORD_INDEX)
 		});
-		LinkedList<MatrixCursor> childrenCursors = new LinkedList<MatrixCursor>();
+		childrenCursors = new LinkedList<MatrixCursor>();
 		String word = null;
 		if(data.moveToFirst())
 		{
@@ -89,8 +109,10 @@ public class Main extends ExpandableListActivity implements LoaderCallbacks<Curs
 			} while(data.moveToNext());
 		}
 		adapter.setGroupCursor(groupCursor);
-		for(int cursorIndex = 0; cursorIndex < childrenCursors.size(); cursorIndex++)
+		for(int cursorIndex = 0; cursorIndex < childrenCursors.size(); cursorIndex++) {
 			adapter.setChildrenCursor(cursorIndex, childrenCursors.get(cursorIndex));
+			getExpandableListView().expandGroup(cursorIndex);
+		}
 	}
 
 	@Override
@@ -142,5 +164,6 @@ public class Main extends ExpandableListActivity implements LoaderCallbacks<Curs
 	protected static final int IS_WANTED_INDEX = 4;
 	
 	private Uri uri;
+	LinkedList<MatrixCursor> childrenCursors;
 
 }
